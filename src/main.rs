@@ -1,10 +1,56 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use nokhwa::{
     Camera,
     pixel_format::RgbAFormat,
     utils::{CameraIndex, RequestedFormat, RequestedFormatType},
 };
+
+fn qr_decode_thread(
+    next_image: Arc<Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>>,
+) -> String {
+    {
+        let mut bardecoder_time = Duration::ZERO;
+
+        loop {
+            let bardecoder_start = Instant::now();
+            let Some((frame_id, rgba_img)) = next_image.lock().unwrap().take() else {
+                std::thread::park();
+                continue;
+            };
+            eprintln!("searching for barcode in frame {frame_id}");
+            let (width, height) = rgba_img.dimensions();
+            let buf = rgba_img.into_vec();
+            let rgba_img =
+                image_0_24::ImageBuffer::<image_0_24::Rgba<u8>, _>::from_vec(width, height, buf)
+                    .unwrap();
+            let decoder = bardecoder::default_decoder();
+            let codes = decoder.decode(&rgba_img);
+            bardecoder_time += bardecoder_start.elapsed();
+            for code in codes {
+                match code {
+                    Ok(code) => {
+                        if code.starts_with("WIFI:") {
+                            dbg!(bardecoder_time);
+                            eprintln!("[{frame_id}] bardecoder found code {code:?}");
+                            return code;
+                        } else {
+                            eprintln!(
+                                "[{frame_id}] bardecoder found non-wifi (or incorrect) code {code:?}"
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("[{frame_id}] bardecoder error {err:?}");
+                    }
+                }
+            }
+        }
+    }
+}
 
 fn main() {
     // first camera in system
@@ -18,78 +64,62 @@ fn main() {
     let mut capture_time = Duration::ZERO;
     let mut decode_time = Duration::ZERO;
     let mut sixel_time = Duration::ZERO;
-    let mut bardecoder_time = Duration::ZERO;
 
     for warmup_iter in 0..3 {
         let frame = camera.frame().unwrap();
-        println!(
+        eprintln!(
             "Captured Warmup frame {warmup_iter} {}",
             frame.buffer().len()
         );
     }
 
-    for iter in 0.. {
+    let next_image_for_qrcode_thread: Arc<
+        Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>,
+    > = Default::default();
+    let qrcode_thread = {
+        let next_image = Arc::clone(&next_image_for_qrcode_thread);
+        std::thread::spawn(|| qr_decode_thread(next_image))
+    };
+
+    for frame_id in 0.. {
         // sleep(Duration::from_secs(1));
+        if qrcode_thread.is_finished() {
+            return;
+        }
 
         // get a frame
         let capture_start = Instant::now();
         let frame = camera.frame().unwrap();
-        println!("Captured Single Frame of {}", frame.buffer().len());
+        eprintln!("Captured Frame {frame_id} len {}", frame.buffer().len());
         capture_time += capture_start.elapsed();
 
         // decode into an ImageBuffer
         let decode_start = Instant::now();
         let decoded = frame.decode_image::<RgbAFormat>().unwrap();
-        println!("Decoded Frame of {}", decoded.len());
+        eprintln!("Decoded Frame {frame_id}");
         decode_time += decode_start.elapsed();
 
-        if iter % 10 == 5 {
-            let sixel_start = Instant::now();
-            let (width, height) = decoded.dimensions();
-            let img_rgba8888 = decoded.clone().into_raw();
-            // Encode as SIXEL data
-            let sixel_data = icy_sixel::sixel_string(
-                &img_rgba8888,
-                width as i32,
-                height as i32,
-                icy_sixel::PixelFormat::RGBA8888,
-                icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
-                icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
-                icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
-                icy_sixel::Quality::HIGH,         // AUTO, HIGH, LOW, FULL, HIGHCOLOR
-            )
-            .expect("Failed to encode image to SIXEL format");
-            println!("{sixel_data}");
-            sixel_time += sixel_start.elapsed();
-        }
+        *next_image_for_qrcode_thread.lock().unwrap() = Some((frame_id, decoded));
+        qrcode_thread.thread().unpark();
 
-        {
-            let bardecoder_start = Instant::now();
-            let rgba_img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = decoded;
-            let (width, height) = rgba_img.dimensions();
-            let buf = rgba_img.into_vec();
-            let rgba_img =
-                image_0_24::ImageBuffer::<image_0_24::Rgba<u8>, _>::from_vec(width, height, buf)
-                    .unwrap();
-            let decoder = bardecoder::default_decoder();
-            let codes = decoder.decode(&rgba_img);
-            bardecoder_time += bardecoder_start.elapsed();
-            for code in codes {
-                match code {
-                    Ok(code) => {
-                        if code.starts_with("WIFI:") {
-                            dbg!(capture_time, decode_time, sixel_time, bardecoder_time);
-                            println!("bardecoder found code {code:?}");
-                            return;
-                        } else {
-                            println!("bardecoder found non-wifi (or incorrect) code {code:?}");
-                        }
-                    }
-                    Err(err) => {
-                        println!("bardecoder error {err:?}");
-                    }
-                }
-            }
-        }
+        // if iter % 10 == 5 {
+        //     let sixel_start = Instant::now();
+        //     let (width, height) = decoded.dimensions();
+        //     let img_rgba8888 = decoded.clone().into_raw();
+        //     // Encode as SIXEL data
+        //     let sixel_data = icy_sixel::sixel_string(
+        //         &img_rgba8888,
+        //         width as i32,
+        //         height as i32,
+        //         icy_sixel::PixelFormat::RGBA8888,
+        //         icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
+        //         icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
+        //         icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
+        //         icy_sixel::Quality::HIGH,         // AUTO, HIGH, LOW, FULL, HIGHCOLOR
+        //     )
+        //     .expect("Failed to encode image to SIXEL format");
+        //     eprintln!("{sixel_data}");
+        //     sixel_time += sixel_start.elapsed();
+        // }
     }
 }
