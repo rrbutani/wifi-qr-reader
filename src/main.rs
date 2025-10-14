@@ -18,7 +18,7 @@ fn main() {
     let mut camera = Camera::new(index, requested).unwrap();
     camera.open_stream().unwrap();
 
-    loop {
+    for iter in 0.. {
         // sleep(Duration::from_secs(1));
 
         // get a frame
@@ -28,6 +28,48 @@ fn main() {
         // decode into an ImageBuffer
         let decoded = frame.decode_image::<RgbFormat>().unwrap();
         println!("Decoded Frame of {}", decoded.len());
+
+        if iter % 10 == 5 {
+            let (width, height) = decoded.dimensions();
+            let img_rgb888 = decoded.clone().into_raw();
+            // Encode as SIXEL data
+            let sixel_data = icy_sixel::sixel_string(
+                &img_rgb888,
+                width as i32,
+                height as i32,
+                icy_sixel::PixelFormat::RGB888,
+                icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
+                icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
+                icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
+                icy_sixel::Quality::HIGH,         // AUTO, HIGH, LOW, FULL, HIGHCOLOR
+            )
+            .expect("Failed to encode image to SIXEL format");
+            println!("{sixel_data}");
+        }
+
+        {
+            let decoded: image::ImageBuffer<image::Rgb<u8>, Vec<u8>> = decoded.clone();
+            let (width, height) = decoded.dimensions();
+            let buf = decoded.into_vec();
+            let decoded =
+                image_0_24::ImageBuffer::<image_0_24::Rgb<u8>, _>::from_vec(width, height, buf)
+                    .unwrap();
+            let img = image_0_24::DynamicImage::ImageRgb8(decoded).to_rgba8();
+            let decoder = bardecoder::default_decoder();
+            let codes = decoder.decode(&img);
+            for code in codes {
+                match code {
+                    Ok(code) => {
+                        println!("bardecoder found code {code:?}");
+                        return;
+                    }
+                    Err(err) => {
+                        println!("bardecoder error {err:?}");
+                    }
+                }
+            }
+        }
+
         let img = DynamicImage::ImageRgb8(decoded);
 
         let reader = rxing::qrcode::QRCodeReader::default();
