@@ -1,4 +1,7 @@
-use std::{thread::sleep, time::Duration};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use image::DynamicImage;
 use nokhwa::{
@@ -17,19 +20,28 @@ fn main() {
     // make the camera
     let mut camera = Camera::new(index, requested).unwrap();
     camera.open_stream().unwrap();
+    let mut capture_time = Duration::ZERO;
+    let mut decode_time = Duration::ZERO;
+    let mut sixel_time = Duration::ZERO;
+    let mut bardecoder_time = Duration::ZERO;
 
     for iter in 0.. {
         // sleep(Duration::from_secs(1));
 
         // get a frame
+        let capture_start = Instant::now();
         let frame = camera.frame().unwrap();
         println!("Captured Single Frame of {}", frame.buffer().len());
+        capture_time += capture_start.elapsed();
 
         // decode into an ImageBuffer
+        let decode_start = Instant::now();
         let decoded = frame.decode_image::<RgbFormat>().unwrap();
         println!("Decoded Frame of {}", decoded.len());
+        decode_time += decode_start.elapsed();
 
         if iter % 10 == 5 {
+            let sixel_start = Instant::now();
             let (width, height) = decoded.dimensions();
             let img_rgb888 = decoded.clone().into_raw();
             // Encode as SIXEL data
@@ -45,11 +57,13 @@ fn main() {
             )
             .expect("Failed to encode image to SIXEL format");
             println!("{sixel_data}");
+            sixel_time += sixel_start.elapsed();
         }
 
         let img = DynamicImage::ImageRgb8(decoded);
 
         {
+            let bardecoder_start = Instant::now();
             let rgba_img = img.to_rgba8();
             let rgba_img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = rgba_img;
             let (width, height) = rgba_img.dimensions();
@@ -59,9 +73,11 @@ fn main() {
                     .unwrap();
             let decoder = bardecoder::default_decoder();
             let codes = decoder.decode(&rgba_img);
+            bardecoder_time += bardecoder_start.elapsed();
             for code in codes {
                 match code {
                     Ok(code) => {
+                        dbg!(capture_time, decode_time, sixel_time, bardecoder_time);
                         println!("bardecoder found code {code:?}");
                         return;
                     }
