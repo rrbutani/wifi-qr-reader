@@ -47,16 +47,18 @@ fn main() {
             println!("{sixel_data}");
         }
 
+        let img = DynamicImage::ImageRgb8(decoded);
+
         {
-            let decoded: image::ImageBuffer<image::Rgb<u8>, Vec<u8>> = decoded.clone();
-            let (width, height) = decoded.dimensions();
-            let buf = decoded.into_vec();
-            let decoded =
-                image_0_24::ImageBuffer::<image_0_24::Rgb<u8>, _>::from_vec(width, height, buf)
+            let rgba_img = img.to_rgba8();
+            let rgba_img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = rgba_img;
+            let (width, height) = rgba_img.dimensions();
+            let buf = rgba_img.into_vec();
+            let rgba_img =
+                image_0_24::ImageBuffer::<image_0_24::Rgba<u8>, _>::from_vec(width, height, buf)
                     .unwrap();
-            let img = image_0_24::DynamicImage::ImageRgb8(decoded).to_rgba8();
             let decoder = bardecoder::default_decoder();
-            let codes = decoder.decode(&img);
+            let codes = decoder.decode(&rgba_img);
             for code in codes {
                 match code {
                     Ok(code) => {
@@ -69,8 +71,6 @@ fn main() {
                 }
             }
         }
-
-        let img = DynamicImage::ImageRgb8(decoded);
 
         let reader = rxing::qrcode::QRCodeReader::default();
         if let Ok(re) = reader.immutable_decode(&mut rxing::BinaryBitmap::new(
