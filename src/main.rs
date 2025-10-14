@@ -25,6 +25,14 @@ fn main() {
     let mut sixel_time = Duration::ZERO;
     let mut bardecoder_time = Duration::ZERO;
 
+    for warmup_iter in 0..3 {
+        let frame = camera.frame().unwrap();
+        println!(
+            "Captured Warmup frame {warmup_iter} {}",
+            frame.buffer().len()
+        );
+    }
+
     for iter in 0.. {
         // sleep(Duration::from_secs(1));
 
