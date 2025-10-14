@@ -85,9 +85,13 @@ fn main() {
             for code in codes {
                 match code {
                     Ok(code) => {
-                        dbg!(capture_time, decode_time, sixel_time, bardecoder_time);
-                        println!("bardecoder found code {code:?}");
-                        return;
+                        if code.starts_with("WIFI:") {
+                            dbg!(capture_time, decode_time, sixel_time, bardecoder_time);
+                            println!("bardecoder found code {code:?}");
+                            return;
+                        } else {
+                            println!("bardecoder found non-wifi (or incorrect) code {code:?}");
+                        }
                     }
                     Err(err) => {
                         println!("bardecoder error {err:?}");
