@@ -1,9 +1,8 @@
 use std::time::{Duration, Instant};
 
-use image::DynamicImage;
 use nokhwa::{
     Camera,
-    pixel_format::RgbFormat,
+    pixel_format::RgbAFormat,
     utils::{CameraIndex, RequestedFormat, RequestedFormatType},
 };
 
@@ -12,7 +11,7 @@ fn main() {
     let index = CameraIndex::Index(0);
     // request the absolute highest resolution CameraFormat that can be decoded to RGB.
     let requested =
-        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
+        RequestedFormat::new::<RgbAFormat>(RequestedFormatType::AbsoluteHighestResolution);
     // make the camera
     let mut camera = Camera::new(index, requested).unwrap();
     camera.open_stream().unwrap();
@@ -40,20 +39,20 @@ fn main() {
 
         // decode into an ImageBuffer
         let decode_start = Instant::now();
-        let decoded = frame.decode_image::<RgbFormat>().unwrap();
+        let decoded = frame.decode_image::<RgbAFormat>().unwrap();
         println!("Decoded Frame of {}", decoded.len());
         decode_time += decode_start.elapsed();
 
         if iter % 10 == 5 {
             let sixel_start = Instant::now();
             let (width, height) = decoded.dimensions();
-            let img_rgb888 = decoded.clone().into_raw();
+            let img_rgba8888 = decoded.clone().into_raw();
             // Encode as SIXEL data
             let sixel_data = icy_sixel::sixel_string(
-                &img_rgb888,
+                &img_rgba8888,
                 width as i32,
                 height as i32,
-                icy_sixel::PixelFormat::RGB888,
+                icy_sixel::PixelFormat::RGBA8888,
                 icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
                 icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
                 icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
@@ -64,12 +63,9 @@ fn main() {
             sixel_time += sixel_start.elapsed();
         }
 
-        let img = DynamicImage::ImageRgb8(decoded);
-
         {
             let bardecoder_start = Instant::now();
-            let rgba_img = img.to_rgba8();
-            let rgba_img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = rgba_img;
+            let rgba_img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = decoded;
             let (width, height) = rgba_img.dimensions();
             let buf = rgba_img.into_vec();
             let rgba_img =
