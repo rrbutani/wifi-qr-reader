@@ -1,7 +1,4 @@
-use std::{
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use image::DynamicImage;
 use nokhwa::{
@@ -9,7 +6,6 @@ use nokhwa::{
     pixel_format::RgbFormat,
     utils::{CameraIndex, RequestedFormat, RequestedFormatType},
 };
-use rxing::ImmutableReader;
 
 fn main() {
     // first camera in system
@@ -98,31 +94,6 @@ fn main() {
                     }
                 }
             }
-        }
-
-        let reader = rxing::qrcode::QRCodeReader::default();
-        if let Ok(re) = reader.immutable_decode(&mut rxing::BinaryBitmap::new(
-            rxing::common::HybridBinarizer::new(rxing::BufferedImageLuminanceSource::new(
-                img.clone(),
-            )),
-        )) {
-            dbg!(re.getText());
-            return;
-        }
-        // rxing::helpers::detect_in_luma(luma, width, height, Some(rxing::BarcodeFormat::QR_CODE));
-
-        let img = img.to_luma8();
-        let mut img = rqrr::PreparedImage::prepare(img);
-        // Search for grids, without decoding
-        let grids = img.detect_grids();
-
-        if let [grid, ..] = &grids[..] {
-            let Ok((meta, content)) = grid.decode() else {
-                println!("Couldn't decode qr code at {:?}", grid.bounds);
-                continue;
-            };
-            dbg!(meta, content);
-            return;
         }
     }
 }
