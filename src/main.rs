@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -16,11 +17,11 @@ fn qr_decode_thread(
         let mut bardecoder_time = Duration::ZERO;
 
         loop {
-            let bardecoder_start = Instant::now();
             let Some((frame_id, rgba_img)) = next_image.lock().unwrap().take() else {
                 std::thread::park();
                 continue;
             };
+            let bardecoder_start = Instant::now();
             eprintln!("searching for barcode in frame {frame_id}");
             let (width, height) = rgba_img.dimensions();
             let buf = rgba_img.into_vec();
@@ -84,7 +85,7 @@ fn main() {
     for frame_id in 0.. {
         // sleep(Duration::from_secs(1));
         if qrcode_thread.is_finished() {
-            return;
+            break;
         }
 
         // get a frame
@@ -99,27 +100,85 @@ fn main() {
         eprintln!("Decoded Frame {frame_id}");
         decode_time += decode_start.elapsed();
 
+        if false {
+            let sixel_start = Instant::now();
+            let (width, height) = decoded.dimensions();
+            let img_rgba8888 = decoded.clone().into_raw();
+            // Encode as SIXEL data
+            let sixel_data = icy_sixel::sixel_string(
+                &img_rgba8888,
+                width as i32,
+                height as i32,
+                icy_sixel::PixelFormat::RGBA8888,
+                icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
+                icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
+                icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
+                icy_sixel::Quality::HIGH,         // AUTO, HIGH, LOW, FULL, HIGHCOLOR
+            )
+            .expect("Failed to encode image to SIXEL format");
+            eprintln!("{sixel_data}");
+            sixel_time += sixel_start.elapsed();
+        }
+
         *next_image_for_qrcode_thread.lock().unwrap() = Some((frame_id, decoded));
         qrcode_thread.thread().unpark();
-
-        // if iter % 10 == 5 {
-        //     let sixel_start = Instant::now();
-        //     let (width, height) = decoded.dimensions();
-        //     let img_rgba8888 = decoded.clone().into_raw();
-        //     // Encode as SIXEL data
-        //     let sixel_data = icy_sixel::sixel_string(
-        //         &img_rgba8888,
-        //         width as i32,
-        //         height as i32,
-        //         icy_sixel::PixelFormat::RGBA8888,
-        //         icy_sixel::DiffusionMethod::Auto, // Auto, None, Atkinson, FS, JaJuNi, Stucki, Burkes, ADither, XDither
-        //         icy_sixel::MethodForLargest::Auto, // Auto, Norm, Lum
-        //         icy_sixel::MethodForRep::Auto,    // Auto, CenterBox, AverageColors, Pixels
-        //         icy_sixel::Quality::HIGH,         // AUTO, HIGH, LOW, FULL, HIGHCOLOR
-        //     )
-        //     .expect("Failed to encode image to SIXEL format");
-        //     eprintln!("{sixel_data}");
-        //     sixel_time += sixel_start.elapsed();
-        // }
     }
+    let wifi_uri = qrcode_thread.join().unwrap();
+    handle_wifi_uri(wifi_uri);
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum WifiUriParamKey {
+    SecurityType,
+    TransitionDisable,
+    Ssid,
+    Hidden,
+    SaePasswordIdentifier,
+    Password,
+    PublicKey,
+}
+
+impl WifiUriParamKey {
+    fn from_str(key: &str) -> Self {
+        match key {
+            "T" => Self::SecurityType,
+            "R" => Self::TransitionDisable,
+            "S" => Self::Ssid,
+            "H" => Self::Hidden,
+            "I" => Self::SaePasswordIdentifier,
+            "P" => Self::Password,
+            "K" => Self::PublicKey,
+
+            _ => {
+                panic!("unknown WIFI URI param '{key}:'")
+            }
+        }
+    }
+}
+
+fn handle_wifi_uri(wifi_uri: String) {
+    let mut remaining = wifi_uri
+        .strip_prefix("WIFI:")
+        .expect("WIFI URI should start with 'WIFI:'");
+    let mut params = HashMap::new();
+    loop {
+        if remaining == ";" {
+            break;
+        } else if remaining == "" {
+            panic!("unterminated WIFI URI");
+        }
+        let tag: &str;
+        (tag, remaining) = remaining
+            .split_once(':')
+            .unwrap_or_else(|| panic!("no ':' left in WIFI URI"));
+        let value: &str;
+        (value, remaining) = remaining
+            .split_once(';')
+            .unwrap_or_else(|| panic!("unterminated {tag}: in WIFI URI"));
+        let key = WifiUriParamKey::from_str(tag);
+        if params.insert(key, value.to_owned()).is_some() {
+            panic!("duplicate key '{tag}:' in WIFI URI");
+        }
+    }
+    dbg!(params);
 }
