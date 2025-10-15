@@ -11,48 +11,7 @@ use nokhwa::{
 };
 use percent_encoding::percent_decode_str;
 
-fn qr_decode_thread(
-    next_image: Arc<Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>>,
-) -> String {
-    {
-        let mut bardecoder_time = Duration::ZERO;
-
-        loop {
-            let Some((frame_id, rgba_img)) = next_image.lock().unwrap().take() else {
-                std::thread::park();
-                continue;
-            };
-            let bardecoder_start = Instant::now();
-            eprintln!("searching for barcode in frame {frame_id}");
-            let (width, height) = rgba_img.dimensions();
-            let buf = rgba_img.into_vec();
-            let rgba_img =
-                image_0_24::ImageBuffer::<image_0_24::Rgba<u8>, _>::from_vec(width, height, buf)
-                    .unwrap();
-            let decoder = bardecoder::default_decoder();
-            let codes = decoder.decode(&rgba_img);
-            bardecoder_time += bardecoder_start.elapsed();
-            for code in codes {
-                match code {
-                    Ok(code) => {
-                        if code.starts_with("WIFI:") {
-                            dbg!(bardecoder_time);
-                            eprintln!("[{frame_id}] bardecoder found code {code:?}");
-                            return code;
-                        } else {
-                            eprintln!(
-                                "[{frame_id}] bardecoder found non-wifi (or incorrect) code {code:?}"
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("[{frame_id}] bardecoder error {err:?}");
-                    }
-                }
-            }
-        }
-    }
-}
+mod qrcode;
 
 fn main() {
     // first camera in system
@@ -80,7 +39,7 @@ fn main() {
     > = Default::default();
     let qrcode_thread = {
         let next_image = Arc::clone(&next_image_for_qrcode_thread);
-        std::thread::spawn(|| qr_decode_thread(next_image))
+        std::thread::spawn(|| qrcode::qr_decode_thread(next_image))
     };
 
     for frame_id in 0.. {
