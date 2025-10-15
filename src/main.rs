@@ -9,6 +9,7 @@ use nokhwa::{
     pixel_format::RgbAFormat,
     utils::{CameraIndex, RequestedFormat, RequestedFormatType},
 };
+use percent_encoding::percent_decode_str;
 
 fn qr_decode_thread(
     next_image: Arc<Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>>,
@@ -124,7 +125,9 @@ fn main() {
         qrcode_thread.thread().unpark();
     }
     let wifi_uri = qrcode_thread.join().unwrap();
-    handle_wifi_uri(wifi_uri);
+    let connection = parse_wifi_uri(wifi_uri);
+    let nmcli = connection.render_to_nmcli();
+    println!("To connect, run:\n  {nmcli}");
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -156,7 +159,7 @@ impl WifiUriParamKey {
     }
 }
 
-fn handle_wifi_uri(wifi_uri: String) {
+fn parse_wifi_uri(wifi_uri: String) -> WifiConnection {
     let mut remaining = wifi_uri
         .strip_prefix("WIFI:")
         .expect("WIFI URI should start with 'WIFI:'");
@@ -175,10 +178,69 @@ fn handle_wifi_uri(wifi_uri: String) {
         (value, remaining) = remaining
             .split_once(';')
             .unwrap_or_else(|| panic!("unterminated {tag}: in WIFI URI"));
+        let value = percent_decode_str(value)
+            .decode_utf8()
+            .expect("only utf8 values are supported for now")
+            .into_owned();
         let key = WifiUriParamKey::from_str(tag);
         if params.insert(key, value.to_owned()).is_some() {
             panic!("duplicate key '{tag}:' in WIFI URI");
         }
     }
-    dbg!(params);
+    dbg!(&params);
+    if let Some(transition_disable) = params.remove(&WifiUriParamKey::TransitionDisable) {
+        if let Ok(transition_disable) = transition_disable.parse::<bool>()
+            && transition_disable == false
+        {
+            // false is normal, so nothing to do here.
+        } else {
+            panic!("unsupported transition_disable flag: {transition_disable:?}");
+        }
+    }
+    if let Some(security) = params.remove(&WifiUriParamKey::SecurityType) {
+        if security != "WPA" {
+            panic!("unsupported security type {security:?}")
+        }
+    }
+    let c = WifiConnection {
+        ssid: params
+            .remove(&WifiUriParamKey::Ssid)
+            .unwrap_or_else(|| panic!("WIFI URI missing SSID")),
+        password: params.remove(&WifiUriParamKey::Password),
+        hidden: params
+            .remove(&WifiUriParamKey::Hidden)
+            .map(|s| {
+                s.parse::<bool>()
+                    .expect("hidden should be \"true\" or \"false\"")
+            })
+            .unwrap_or(false),
+    };
+
+    if !params.is_empty() {
+        panic!("unsupported flags: {params:?}");
+    }
+    c
+}
+
+struct WifiConnection {
+    ssid: String,
+    password: Option<String>,
+    hidden: bool,
+}
+
+impl WifiConnection {
+    fn render_to_nmcli(&self) -> String {
+        let password_args = match &self.password {
+            Some(password) => format!(" password {}", shlex::try_quote(password).unwrap()),
+            None => "".to_owned(),
+        };
+        let hidden_args = match self.hidden {
+            true => " hidden yes",
+            false => "",
+        };
+        format!(
+            "nmcli device wifi connect {ssid}{password_args}{hidden_args}",
+            ssid = shlex::try_quote(&self.ssid).unwrap()
+        )
+    }
 }
