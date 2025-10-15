@@ -100,7 +100,7 @@ fn main() {
         eprintln!("Decoded Frame {frame_id}");
         decode_time += decode_start.elapsed();
 
-        if false {
+        if frame_id % 10 == 5 {
             let sixel_start = Instant::now();
             let (width, height) = decoded.dimensions();
             let img_rgba8888 = decoded.clone().into_raw();
