@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -11,6 +10,7 @@ use nokhwa::{
 };
 use percent_encoding::percent_decode_str;
 
+mod mailslot;
 mod qrcode;
 
 fn main() {
@@ -34,13 +34,8 @@ fn main() {
         );
     }
 
-    let next_image_for_qrcode_thread: Arc<
-        Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>,
-    > = Default::default();
-    let qrcode_thread = {
-        let next_image = Arc::clone(&next_image_for_qrcode_thread);
-        std::thread::spawn(|| qrcode::qr_decode_thread(next_image))
-    };
+    let (next_image_for_qrcode_thread, image_receiver) = crate::mailslot::mailslot();
+    let qrcode_thread = std::thread::spawn(|| qrcode::qr_decode_thread(image_receiver));
 
     for frame_id in 0.. {
         // sleep(Duration::from_secs(1));
@@ -80,8 +75,7 @@ fn main() {
             sixel_time += sixel_start.elapsed();
         }
 
-        *next_image_for_qrcode_thread.lock().unwrap() = Some((frame_id, decoded));
-        qrcode_thread.thread().unpark();
+        next_image_for_qrcode_thread.send_replace((frame_id, decoded));
     }
     let wifi_uri = qrcode_thread.join().unwrap();
     let connection = parse_wifi_uri(wifi_uri);

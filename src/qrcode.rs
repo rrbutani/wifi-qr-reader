@@ -1,22 +1,20 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use bardecoder::{decode::Decode, detect::Detect, extract::Extract, prepare::Prepare};
 use image::DynamicImage;
 
+#[allow(clippy::type_complexity, reason = "this is as clear as I can make it")]
 pub(crate) fn qr_decode_thread(
-    next_image: Arc<Mutex<Option<(i32, image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)>>>,
+    mut next_image: crate::mailslot::MailslotReceiver<(
+        i32,
+        image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    )>,
 ) -> String {
     {
         let mut bardecoder_time = Duration::ZERO;
 
         loop {
-            let Some((frame_id, rgba_img)) = next_image.lock().unwrap().take() else {
-                std::thread::park();
-                continue;
-            };
+            let (frame_id, rgba_img) = next_image.recv();
             let bardecoder_start = Instant::now();
             eprintln!("searching for barcode in frame {frame_id}");
             let decoded = qr_decode(frame_id, rgba_img);
