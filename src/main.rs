@@ -126,7 +126,7 @@ fn parse_wifi_uri(wifi_uri: String) -> WifiConnection {
     loop {
         if remaining == ";" {
             break;
-        } else if remaining == "" {
+        } else if remaining.is_empty() {
             panic!("unterminated WIFI URI");
         }
         let tag: &str;
@@ -149,17 +149,17 @@ fn parse_wifi_uri(wifi_uri: String) -> WifiConnection {
     dbg!(&params);
     if let Some(transition_disable) = params.remove(&WifiUriParamKey::TransitionDisable) {
         if let Ok(transition_disable) = transition_disable.parse::<bool>()
-            && transition_disable == false
+            && !transition_disable
         {
             // false is normal, so nothing to do here.
         } else {
             panic!("unsupported transition_disable flag: {transition_disable:?}");
         }
     }
-    if let Some(security) = params.remove(&WifiUriParamKey::SecurityType) {
-        if security != "WPA" {
-            panic!("unsupported security type {security:?}")
-        }
+    if let Some(security) = params.remove(&WifiUriParamKey::SecurityType)
+        && security != "WPA"
+    {
+        panic!("unsupported security type {security:?}")
     }
     let c = WifiConnection {
         ssid: params

@@ -88,7 +88,7 @@ fn qr_decode(frame_id: i32, image: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>)
                                 let qr_img = qr_img.into_rgb8();
                                 dbg!(qr_img.width(), qr_img.height());
                                 let sixel_data = icy_sixel::sixel_string(
-                                    &qr_img.as_raw(),
+                                    qr_img.as_raw(),
                                     qr_img.width() as i32,
                                     qr_img.height() as i32,
                                     icy_sixel::PixelFormat::RGB888,
