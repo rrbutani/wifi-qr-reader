@@ -30,10 +30,6 @@ impl<T: Send> MailslotSender<T> {
     }
 }
 
-impl<T> Drop for MailslotSender<T> {
-    fn drop(&mut self) {}
-}
-
 pub struct MailslotReceiver<T> {
     inner: Arc<Mutex<MailslotState<T>>>,
 }
